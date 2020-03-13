@@ -16,13 +16,12 @@
  *
  *  Date: 2018-04-24
  */
-import physicalgraph.zwave.commands.*
+import hubitat.zwave.commands.*
 
 metadata {
 	definition (name: "Stelpro Ki Thermostat", namespace: "stelpro", author: "Stelpro", ocfDeviceType: "oic.d.thermostat") {
 		capability "Actuator"
 		capability "Temperature Measurement"
-		capability "Temperature Alarm"
 		capability "Thermostat"
 		capability "Thermostat Mode"
 		capability "Thermostat Operating State"
@@ -103,18 +102,13 @@ metadata {
 					[value: 96, color: "#bc2323"]
 				]
 		}
-		standardTile("temperatureAlarm", "device.temperatureAlarm", decoration: "flat", width: 2, height: 2) {
-			state "default", label: 'No Alarm', icon: "st.alarm.temperature.normal", backgroundColor: "#ffffff"
-			state "cleared", label: 'No Alarm', icon: "st.alarm.temperature.normal", backgroundColor: "#ffffff"
-			state "freeze", label: 'Freeze', icon: "st.alarm.temperature.freeze", backgroundColor: "#bc2323"
-			state "heat", label: 'Overheat', icon: "st.alarm.temperature.overheat", backgroundColor: "#bc2323"
-		}
+
 		standardTile("refresh", "device.refresh", decoration: "flat", width: 2, height: 2) {
 			state "default", action:"refresh.refresh", icon:"st.secondary.refresh"
 		}
 
 		main ("thermostatMulti")
-		details(["thermostatMulti", "mode", "heatingSetpoint", "temperatureAlarm", "refresh"])
+		details(["thermostatMulti", "mode", "heatingSetpoint", "refresh"])
 	}
 }
 
@@ -152,8 +146,6 @@ def configureSupportedRanges() {
 }
 
 def installed() {
-	sendEvent(name: "temperatureAlarm", value: "cleared", displayed: false)
-
 	setupHealthCheck()
 
 	configureSupportedRanges()
@@ -176,10 +168,6 @@ def parse(String description) {
 	// If the user installed with an old DTH version, update so that the new mobile client will work
 	if (!device.currentValue("supportedThermostatModes")) {
 		configureSupportedRanges()
-	}
-	// Existing installations need the temperatureAlarm state initialized
-	if (device.currentValue("temperatureAlarm") == null) {
-		sendEvent(name: "temperatureAlarm", value: "cleared", displayed: false)
 	}
 
 	if (description == "updated") {
@@ -319,35 +307,13 @@ def zwaveEvent(sensormultilevelv3.SensorMultilevelReport cmd) {
 	if (cmd.sensorType == sensormultilevelv3.SensorMultilevelReport.SENSOR_TYPE_TEMPERATURE_VERSION_1) {
 		temp = convertTemperatureIfNeeded(cmd.scaledSensorValue, cmd.scale == 1 ? "F" : "C", cmd.precision)
 
-		// The specific values checked below represent ambient temperature alarm indicators
-		if (temp == 0x7ffd) { // Freeze Alarm
-			map.name = "temperatureAlarm"
-			map.value = "freeze"
-		} else if (temp == 0x7fff) { // Overheat Alarm
-			map.name = "temperatureAlarm"
-			map.value = "heat"
-		} else if (temp == 0x8000) { // Temperature Sensor Error
+		if (temp == 0x8000) { // Temperature Sensor Error
 			map.descriptionText = "Received a temperature error"
 		} else {
 			map.name = "temperature"
 			map.value = (Math.round(temp.toFloat() * 2)) / 2
 			map.unit = getTemperatureScale()
 
-
-			// Handle cases where we need to update the temperature alarm state given certain temperatures
-			// Account for a f/w bug where the freeze alarm doesn't trigger at 0C
-			if (map.value <= (map.unit == "C" ? 0 : 32)) {
-				log.debug "EARLY FREEZE ALARM @ $map.value $map.unit (raw $intVal)"
-				sendEvent(name: "temperatureAlarm", value: "freeze")
-			}
-			// Overheat alarm doesn't trigger until 80C, but we'll start sending at 50C to match thermostat display
-			else if (map.value >= (map.unit == "C" ? 50 : 122)) {
-				log.debug "EARLY HEAT ALARM @  $map.value $map.unit (raw $intVal)"
-				sendEvent(name: "temperatureAlarm", value: "heat")
-			} else if (device.currentValue("temperatureAlarm") != "cleared") {
-				log.debug "CLEAR ALARM @ $map.value $map.unit (raw $intVal)"
-				sendEvent(name: "temperatureAlarm", value: "cleared")
-			}
 		}
 	} else if (cmd.sensorType == sensormultilevelv3.SensorMultilevelReport.SENSOR_TYPE_RELATIVE_HUMIDITY_VERSION_2) {
 		map.value = cmd.scaledSensorValue
@@ -403,7 +369,7 @@ def zwaveEvent(thermostatmodev2.ThermostatModeSupportedReport cmd) {
 	log.debug "Zwave event received: $cmd"
 }
 
-def zwaveEvent(physicalgraph.zwave.Command cmd) {
+def zwaveEvent(hubitat.zwave.Command cmd) {
 	log.warn "Unexpected zwave command $cmd"
 }
 
